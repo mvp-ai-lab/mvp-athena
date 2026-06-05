@@ -8,9 +8,15 @@ import { spawnSync } from "node:child_process";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const buildDir = join(root, ".binary-build");
 const releaseDir = join(root, "release");
-const target = `${platform()}-${arch()}`;
+const hostPlatform = platform();
+const target = process.env.ATHENA_BINARY_TARGET ?? `${hostPlatform}-${arch()}`;
+const [targetPlatform, targetArch] = target.split("-");
+if (!targetPlatform || !targetArch) {
+  throw new Error(`ATHENA_BINARY_TARGET must look like linux-x64 or darwin-arm64, got: ${target}`);
+}
 const outDir = join(releaseDir, `mvp-athena-${target}`);
-const exe = platform() === "win32" ? ".exe" : "";
+const exe = targetPlatform === "win32" ? ".exe" : "";
+const nodeBinary = process.env.ATHENA_NODE_BINARY ?? process.execPath;
 const fuse = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
 
 const entries = [
@@ -62,9 +68,9 @@ for (const entry of entries) {
   );
 
   run(process.execPath, ["--experimental-sea-config", seaConfig]);
-  copyFileSync(process.execPath, binary);
+  copyFileSync(nodeBinary, binary);
 
-  if (platform() === "darwin") {
+  if (targetPlatform === "darwin") {
     runIfAvailable("codesign", ["--remove-signature", binary]);
   }
 
@@ -76,14 +82,14 @@ for (const entry of entries) {
     blob,
     "--sentinel-fuse",
     fuse,
-    ...(platform() === "darwin" ? ["--macho-segment-name", "NODE_SEA"] : [])
+    ...(targetPlatform === "darwin" ? ["--macho-segment-name", "NODE_SEA"] : [])
   ]);
 
-  if (platform() === "darwin") {
+  if (targetPlatform === "darwin") {
     runIfAvailable("codesign", ["--sign", "-", binary]);
   }
 
-  if (platform() !== "win32") {
+  if (targetPlatform !== "win32") {
     run("chmod", ["755", binary]);
   }
 
@@ -122,7 +128,7 @@ function run(command, args) {
   const result = spawnSync(command, args, {
     cwd: root,
     stdio: "inherit",
-    shell: platform() === "win32"
+    shell: hostPlatform === "win32"
   });
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(" ")} failed with exit code ${result.status}`);
@@ -136,9 +142,9 @@ function runIfAvailable(command, args) {
 }
 
 function existsSyncCommand(command) {
-  const result = spawnSync(platform() === "win32" ? "where" : "command", platform() === "win32" ? [command] : ["-v", command], {
+  const result = spawnSync(hostPlatform === "win32" ? "where" : "command", hostPlatform === "win32" ? [command] : ["-v", command], {
     stdio: "ignore",
-    shell: platform() !== "win32"
+    shell: hostPlatform !== "win32"
   });
   return result.status === 0;
 }
