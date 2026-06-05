@@ -1,0 +1,18 @@
+{
+  "name": "@mvp-athena/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "mvp-athena": "./dist/index.js",
+    "athena": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "pnpm typecheck",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "commander": "^14.0.0"
+  }
+}

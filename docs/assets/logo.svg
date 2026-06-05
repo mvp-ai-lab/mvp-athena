@@ -1,0 +1,10 @@
+<svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">MVP Athena</title>
+  <desc id="desc">A minimal Athena monogram with layered document lines.</desc>
+  <rect x="14" y="14" width="132" height="132" rx="30" fill="#111827"/>
+  <path d="M47 116L78 42C79 39 83 39 84 42L116 116" stroke="#F8FAFC" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M61 84H101" stroke="#F8FAFC" stroke-width="10" stroke-linecap="round"/>
+  <path d="M55 126H107" stroke="#38BDF8" stroke-width="8" stroke-linecap="round"/>
+  <path d="M65 103H96" stroke="#94A3B8" stroke-width="7" stroke-linecap="round"/>
+  <path d="M72 63H89" stroke="#94A3B8" stroke-width="7" stroke-linecap="round"/>
+</svg>

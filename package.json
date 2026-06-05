@@ -1,0 +1,31 @@
+{
+  "name": "mvp-athena",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent-first team knowledge system backed by a GitHub Markdown repository.",
+  "packageManager": "pnpm@10.18.2",
+  "scripts": {
+    "build": "pnpm -r build",
+    "check": "pnpm -r check",
+    "dev:api": "pnpm --filter @mvp-athena/api dev",
+    "dev:mcp": "pnpm --filter @mvp-athena/mcp-server dev",
+    "dev:discord": "pnpm --filter @mvp-athena/discord-bot dev",
+    "deploy:server": "docker compose up -d --build",
+    "deploy:server:discord": "docker compose --profile discord up -d --build",
+    "build:binaries": "node scripts/build-binaries.mjs",
+    "install:cli": "pnpm --filter @mvp-athena/cli build && pnpm --filter @mvp-athena/cli link --global",
+    "install:mcp": "pnpm --filter @mvp-athena/mcp-server build && pnpm --filter @mvp-athena/mcp-server link --global",
+    "install:clients": "pnpm install:cli && pnpm install:mcp",
+    "start:api": "pnpm --filter @mvp-athena/api start",
+    "test": "pnpm --filter @mvp-athena/core test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "postject": "^1.0.0-alpha.6",
+    "@types/node": "^20.19.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.0"
+  }
+}

@@ -1,0 +1,16 @@
+.git
+.codex
+.agents
+node_modules
+**/node_modules
+**/dist
+outputs
+work
+.env
+.env.*
+!.env.example
+!.env.server.example
+npm-debug.log*
+pnpm-debug.log*
+Dockerfile
+docker-compose.override.yml
