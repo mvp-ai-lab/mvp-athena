@@ -120,15 +120,6 @@ docker compose up -d --build
 docker compose down
 ```
 
-For `lrc-alpha-sg-cpu01` and `athena.mvp-lab.ai`, use the dedicated deployment bundle:
-
-```sh
-deploy/lrc-alpha-sg-cpu01/
-scripts/deploy-lrc-alpha-sg-cpu01.sh
-```
-
-It pins API exposure to `127.0.0.1:13000`, stores data under `/mnt/data-alpha-sg-01/services/mvp-athena/`, and includes the nginx config for `athena.mvp-lab.ai`.
-
 Enable the optional Discord bot:
 
 ```sh
