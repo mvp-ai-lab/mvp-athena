@@ -202,7 +202,7 @@ Install a specific release:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mvp-ai-lab/mvp-athena/main/install.sh \
-  | ATHENA_VERSION=v0.1.2 sh
+  | ATHENA_VERSION=v0.1.0 sh
 ```
 
 The installer writes:
