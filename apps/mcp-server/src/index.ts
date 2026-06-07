@@ -21,6 +21,10 @@ function textResult(value: unknown) {
   };
 }
 
+function encodePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
 server.tool("list_spaces", "List spaces visible to the current user", {}, async () => {
   return textResult(await client.request("GET", "/spaces"));
 });
@@ -48,7 +52,7 @@ server.tool(
     path: z.string()
   },
   async ({ spaceId, path }) => {
-    return textResult(await client.request("GET", `/spaces/${encodeURIComponent(spaceId)}/docs/${path}`));
+    return textResult(await client.request("GET", `/spaces/${encodeURIComponent(spaceId)}/docs/${encodePath(path)}`));
   }
 );
 
@@ -81,7 +85,7 @@ server.tool(
     expectedSha: z.string().optional()
   },
   async ({ spaceId, path, ...body }) => {
-    return textResult(await client.request("PATCH", `/spaces/${encodeURIComponent(spaceId)}/docs/${path}`, body));
+    return textResult(await client.request("PATCH", `/spaces/${encodeURIComponent(spaceId)}/docs/${encodePath(path)}`, body));
   }
 );
 
@@ -95,7 +99,7 @@ server.tool(
   },
   async ({ spaceId, path, expectedSha }) => {
     const query = expectedSha ? `?expectedSha=${encodeURIComponent(expectedSha)}` : "";
-    return textResult(await client.request("DELETE", `/spaces/${encodeURIComponent(spaceId)}/docs/${path}${query}`));
+    return textResult(await client.request("DELETE", `/spaces/${encodeURIComponent(spaceId)}/docs/${encodePath(path)}${query}`));
   }
 );
 
@@ -124,7 +128,7 @@ server.tool(
   },
   async ({ spaceId, fromPath, toPath, expectedSha }) => {
     return textResult(
-      await client.request("POST", `/spaces/${encodeURIComponent(spaceId)}/move-doc/${fromPath}`, { toPath, expectedSha })
+      await client.request("POST", `/spaces/${encodeURIComponent(spaceId)}/move-doc/${encodePath(fromPath)}`, { toPath, expectedSha })
     );
   }
 );
@@ -137,7 +141,7 @@ server.tool(
     path: z.string()
   },
   async ({ spaceId, path }) => {
-    return textResult(await client.request("GET", `/spaces/${encodeURIComponent(spaceId)}/history/${path}`));
+    return textResult(await client.request("GET", `/spaces/${encodeURIComponent(spaceId)}/history/${encodePath(path)}`));
   }
 );
 
@@ -162,7 +166,7 @@ server.tool(
     raw: z.string().optional()
   },
   async ({ spaceId, path, ...body }) => {
-    return textResult(await client.request("POST", `/spaces/${encodeURIComponent(spaceId)}/propose-edit/${path}`, body));
+    return textResult(await client.request("POST", `/spaces/${encodeURIComponent(spaceId)}/propose-edit/${encodePath(path)}`, body));
   }
 );
 

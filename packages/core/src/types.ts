@@ -9,7 +9,8 @@ export type AuditAction =
   | "search"
   | "history.read"
   | "summary.read"
-  | "edit.propose";
+  | "edit.propose"
+  | "index.rebuild";
 
 export interface User {
   id: string;
@@ -22,6 +23,15 @@ export interface User {
 export interface ApiToken {
   tokenHash: string;
   userId: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt?: string;
+  expiresAt?: string;
+  revokedAt?: string;
+}
+
+export interface ApiTokenSummary {
+  id: string;
   name: string;
   createdAt: string;
   lastUsedAt?: string;
@@ -45,6 +55,7 @@ export interface SpaceMembership {
 export interface RequestContext {
   actor: User;
   source: Source;
+  repositoryRole?: Role;
 }
 
 export interface DocumentFrontmatter {
@@ -75,6 +86,10 @@ export interface DocumentListItem {
   title: string;
   tags: string[];
   updatedAt: string;
+}
+
+export interface DocumentIndexEntry extends DocumentListItem {
+  content: string;
 }
 
 export interface SearchResult {
@@ -159,9 +174,16 @@ export interface KnowledgeStore {
   upsertMembership(membership: SpaceMembership): Promise<void>;
   createApiToken(token: ApiToken): Promise<void>;
   markApiTokenUsed(tokenHash: string): Promise<void>;
+  listApiTokensForUser(userId: string): Promise<ApiTokenSummary[]>;
+  revokeApiToken(tokenHash: string, userId: string): Promise<void>;
+  revokeApiTokensForUser(userId: string): Promise<void>;
   listSpacesForUser(userId: string): Promise<Array<Space & { role: Role }>>;
   getSpace(spaceId: string): Promise<Space | null>;
   getMembership(userId: string, spaceId: string): Promise<SpaceMembership | null>;
+  upsertDocumentIndex(entry: DocumentIndexEntry): Promise<void>;
+  deleteDocumentIndex(spaceId: string, path: string): Promise<void>;
+  listDocumentIndex(spaceId: string): Promise<DocumentListItem[]>;
+  searchDocumentIndex(spaceIds: string[], query: string): Promise<SearchResult[]>;
   appendAuditLog(entry: AuditLogEntry): Promise<void>;
   listAuditLogs(spaceId: string): Promise<AuditLogEntry[]>;
 }

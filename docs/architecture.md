@@ -42,31 +42,31 @@ Entrypoints must not bypass `KnowledgeService`.
 
 `KnowledgeService` depends on two storage contracts:
 
-- `KnowledgeStore` stores users, spaces, memberships, and audit logs.
+- `KnowledgeStore` stores users, spaces, memberships, API token metadata, document index rows, and audit logs.
 - `GitProvider` stores Markdown documents, assets, and document history.
 
 The local development mode wires `InMemoryKnowledgeStore` and `InMemoryGitProvider`.
 
 The production-style mode wires:
 
-- `PostgresKnowledgeStore` for users, spaces, memberships, and audit logs.
+- `PostgresKnowledgeStore` for users, spaces, memberships, API token metadata, document index rows, and audit logs.
 - `GitHubGitProvider` for Markdown documents, assets, writes, moves, deletes, and history through the GitHub Contents/Commits APIs.
 
 Set `ATHENA_STORAGE_MODE=postgres` in `apps/api` to use this path. The required database schema is in `docs/schema.sql`; a minimal seed is in `docs/seed.sql`.
 
-The `documents` table is reserved for indexing/search metadata. Current read, write, and history operations still treat GitHub Markdown as the source of truth.
+GitHub Markdown remains the source of truth for document bodies and history. The `documents` table is the query index used by list/search APIs. Writes update it synchronously; existing repositories can be imported with the reindex API.
 
 ## Authentication Shape
 
-CLI and MCP users authenticate with GitHub OAuth device flow:
+CLI and MCP users authenticate with GitHub App device flow:
 
 1. The client starts `/auth/github/device`.
 2. The API starts GitHub's device authorization flow and returns the user code and verification URL.
 3. The client polls `/auth/github/device/poll`.
-4. The API exchanges the GitHub device code for a GitHub access token, reads `/user` and `/user/emails`, upserts the Athena `users` row, creates an Athena API token, and stores only its SHA-256 hash in `api_tokens`.
+4. The API exchanges the GitHub device code for a GitHub access token, reads `/user` and `/user/emails`, checks that the user can access the configured GitHub knowledge repository, upserts the Athena `users` row, creates an Athena API token, and stores only its SHA-256 hash in `api_tokens`.
 5. Later client requests send `Authorization: Bearer <athena token>`.
-6. The API hashes the bearer token, resolves the actor user, and passes that actor into `KnowledgeService`.
+6. The API hashes the bearer token, resolves the actor user, checks current GitHub repository access, and passes that actor plus repository role into `KnowledgeService`.
+
+GitHub repository permission is the global authorization ceiling: `read`/`triage` maps to `viewer`, `write`/`maintain` maps to `editor`, and `admin` maps to `owner`. Athena space memberships can reduce access further, but they cannot grant more than the user has on the GitHub repository.
 
 Git commits use the actor's `displayName`/`githubLogin` and `githubEmail`, so each person's agent writes with that person's GitHub author identity.
-
-`ATHENA_TOKEN` remains only as a legacy/bootstrap shared-token fallback when paired with `ATHENA_DEFAULT_USER_ID`.

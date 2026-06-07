@@ -19,13 +19,23 @@ FROM deps AS build
 COPY . .
 RUN pnpm build
 
-FROM base AS runtime
+FROM build AS prod-deps
+RUN pnpm deploy --filter @mvp-athena/api --prod /prod/api \
+  && pnpm deploy --filter @mvp-athena/discord-bot --prod /prod/discord-bot
+
+FROM node:20-bookworm-slim AS runtime
 ENV NODE_ENV=production
-COPY --from=build /app /app
+WORKDIR /app
+RUN groupadd --system --gid 10001 athena \
+  && useradd --system --uid 10001 --gid athena --home-dir /app --shell /usr/sbin/nologin athena
 
 FROM runtime AS api
+COPY --from=prod-deps --chown=athena:athena /prod/api /app
+USER athena
 EXPOSE 3000
-CMD ["node", "apps/api/dist/index.js"]
+CMD ["node", "dist/index.js"]
 
 FROM runtime AS discord-bot
-CMD ["node", "apps/discord-bot/dist/index.js"]
+COPY --from=prod-deps --chown=athena:athena /prod/discord-bot /app
+USER athena
+CMD ["node", "dist/index.js"]

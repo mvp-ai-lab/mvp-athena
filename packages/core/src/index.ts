@@ -1,5 +1,6 @@
 export * from "./errors.js";
 export * from "./github-provider.js";
+export * from "./github-repository-access.js";
 export * from "./in-memory.js";
 export * from "./markdown.js";
 export * from "./paths.js";

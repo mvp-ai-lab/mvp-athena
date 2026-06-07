@@ -35,10 +35,14 @@ function ctx(actor: User): RequestContext {
   return { actor, source: "api" };
 }
 
+function repoCtx(actor: User, repositoryRole: RequestContext["repositoryRole"]): RequestContext {
+  return { actor, source: "api", repositoryRole };
+}
+
 describe("KnowledgeService", () => {
   let service: KnowledgeService;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     const store = new InMemoryKnowledgeStore({
       users: [owner, viewer, outsider],
       spaces: [
@@ -74,6 +78,8 @@ describe("KnowledgeService", () => {
       }
     ]);
     service = new KnowledgeService({ store, git });
+    await service.reindexSpace(ctx(owner), "team");
+    await service.reindexSpace(ctx(owner), "private");
   });
 
   it("allows a viewer to read but not write", async () => {
@@ -110,6 +116,18 @@ describe("KnowledgeService", () => {
     expect(history).toHaveLength(2);
     expect(audit.map((entry) => entry.action)).toContain("doc.create");
     expect(audit.map((entry) => entry.action)).toContain("doc.update");
+  });
+
+  it("caps write access by the GitHub repository role", async () => {
+    await expect(
+      service.updateDoc(repoCtx(owner, "viewer"), { spaceId: "team", path: "runbook.md", body: "nope" })
+    ).rejects.toThrow(ForbiddenError);
+  });
+
+  it("caps listed space roles by the GitHub repository role", async () => {
+    await expect(service.listSpaces(repoCtx(owner, "viewer"))).resolves.toContainEqual(
+      expect.objectContaining({ id: "team", role: "viewer" })
+    );
   });
 
   it("prevents create from overwriting an existing document", async () => {

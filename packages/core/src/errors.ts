@@ -38,3 +38,15 @@ export class ValidationError extends AthenaError {
     super(message, "validation_error", 400);
   }
 }
+
+export class TooManyRequestsError extends AthenaError {
+  constructor(message = "Too many requests") {
+    super(message, "too_many_requests", 429);
+  }
+}
+
+export class ServiceUnavailableError extends AthenaError {
+  constructor(message = "Service unavailable") {
+    super(message, "service_unavailable", 503);
+  }
+}

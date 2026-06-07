@@ -10,7 +10,7 @@ work
 .env.*
 !.env.example
 !.env.server.example
+.secrets
 npm-debug.log*
 pnpm-debug.log*
-Dockerfile
 docker-compose.override.yml

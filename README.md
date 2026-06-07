@@ -8,7 +8,6 @@
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178C6">
   <img alt="database" src="https://img.shields.io/badge/database-PostgreSQL%20%2B%20pgvector-4169E1">
   <img alt="transport" src="https://img.shields.io/badge/MCP-stdio-111827">
-  <img alt="license" src="https://img.shields.io/badge/license-TBD-lightgrey">
 </p>
 
 # MVP Athena
@@ -21,7 +20,7 @@ GitHub stores the canonical Markdown files and commit history. PostgreSQL stores
 
 - GitHub Markdown repository as the source of truth.
 - Fastify HTTP API with a shared `KnowledgeService` core.
-- GitHub OAuth device login for CLI and MCP users.
+- GitHub App device login for CLI and MCP users.
 - Per-user Athena API tokens stored as SHA-256 hashes.
 - Commit authors derived from each user's GitHub profile.
 - CLI commands for spaces, search, read, create, update, upload, move, history, and summary.
@@ -48,17 +47,16 @@ Server
         |
         +--> PostgreSQL: users, spaces, memberships, api_tokens, audit_logs
         +--> GitHub repo: spaces/<space>/docs/*.md, assets, history
-        +--> Redis: reserved for indexing/background jobs
 ```
 
 Entry points must go through `KnowledgeService`; permissions, paths, Markdown parsing, audit logs, and commit authorship are enforced there.
 
 ## Server Deployment
 
-Deploy the required server-side services:
+Deploy the required server-side services on a host you control:
 
 ```sh
-cp .env.server.example .env
+cp .env.example .env
 $EDITOR .env
 docker compose up -d --build
 ```
@@ -73,43 +71,107 @@ This starts:
 
 - `api`: Athena HTTP API on `ATHENA_API_PORT`, default `3000`
 - `postgres`: PostgreSQL 16 with pgvector
-- `redis`: Redis 7, reserved for indexing/background jobs
 
-Required `.env` values:
+Required database values:
 
 ```sh
 DATABASE_URL=postgres://athena:<password>@postgres:5432/athena
+POSTGRES_PASSWORD=<password>
+```
 
+Required GitHub repository values:
+
+```sh
 GITHUB_OWNER=<github-owner-or-org>
 GITHUB_REPO=<markdown-knowledge-repo>
 GITHUB_BRANCH=main
-GITHUB_TOKEN=<token-with-repo-contents-read-write-access>
-
-GITHUB_OAUTH_CLIENT_ID=<github-oauth-app-client-id>
-GITHUB_OAUTH_CLIENT_SECRET=<github-oauth-app-client-secret>
 ```
+
+### GitHub Authentication
+
+Athena needs two GitHub capabilities:
+
+- User login: identifies the person using CLI/MCP and records their GitHub identity.
+- Repository writes: commits Markdown changes to the knowledge repository.
+- Repository access checks: rejects users who cannot access the private knowledge repository.
+
+Production setup uses one GitHub App for both capabilities. Create a GitHub App, install it on the knowledge repository, and grant repository `Contents: Read and write` plus `Metadata: Read-only`. Enable device flow for the app so CLI and MCP users can log in through GitHub.
+
+Configure the server with:
+
+```sh
+GITHUB_APP_CLIENT_ID=<github-app-client-id>
+GITHUB_APP_INSTALLATION_ID=<github-app-installation-id>
+GITHUB_APP_PRIVATE_KEY_HOST_PATH=/secure/path/on/host/github-app.pem
+```
+
+`docker-compose.yml` mounts `GITHUB_APP_PRIVATE_KEY_HOST_PATH` as a Docker secret and exposes it to the API container at `/run/secrets/github-app.pem`. For non-Compose deployments, set `GITHUB_APP_PRIVATE_KEY_PATH` inside the API runtime to the mounted private key path.
+
+Do not use personal access tokens for repository writes. Athena signs GitHub App JWTs and exchanges them for short-lived installation tokens at runtime.
+
+GitHub repository permission is the outer security boundary:
+
+| GitHub repository permission | Athena maximum role |
+| --- | --- |
+| `read` or `triage` | `viewer` |
+| `write` or `maintain` | `editor` |
+| `admin` | `owner` |
+| no repository access | login and API requests are rejected |
+
+Athena checks repository access before issuing a user token and again on API requests. If a user loses repository access, their existing Athena tokens are revoked on the next request.
 
 Optional first-login access grant:
 
 ```sh
 ATHENA_SIGNUP_SPACE_ID=team
-ATHENA_SIGNUP_ROLE=editor
+ATHENA_SIGNUP_ROLE=
 ```
 
-Optional legacy/bootstrap shared token:
+When `ATHENA_SIGNUP_ROLE` is empty, Athena mirrors the user's GitHub repository permission. When it is set, it is a maximum auto-granted role; it cannot grant more access than the user has on GitHub.
 
-```sh
-ATHENA_TOKEN=<shared-bootstrap-token>
-ATHENA_DEFAULT_USER_ID=dev-user
-```
+Users authenticate with GitHub device login and receive per-user Athena API tokens. The server stores only SHA-256 token hashes.
+Tokens expire after `ATHENA_API_TOKEN_TTL_DAYS`, default `30`.
 
-Normal users should use GitHub OAuth login instead of sharing `ATHENA_TOKEN`.
+GitHub webhooks require `GITHUB_WEBHOOK_SECRET`; invalid `X-Hub-Signature-256` signatures are rejected.
 
 Check the deployment:
 
 ```sh
 docker compose ps
 curl http://127.0.0.1:3000/healthz
+```
+
+Production deployments should bind the API to localhost and put nginx, Caddy, or another reverse proxy in front of it:
+
+```yaml
+services:
+  api:
+    ports:
+      - "127.0.0.1:13000:3000"
+```
+
+Example nginx proxy:
+
+```nginx
+server {
+    listen 80;
+    server_name athena.example.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:13000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+Then issue a certificate with your preferred ACME client, for example:
+
+```sh
+certbot --nginx -d athena.example.com
 ```
 
 Common operations:
@@ -126,7 +188,7 @@ Enable the optional Discord bot:
 docker compose --profile discord up -d --build
 ```
 
-Set `DISCORD_TOKEN` and `DISCORD_APPLICATION_ID` before enabling the Discord profile.
+Set `ATHENA_BOT_TOKEN`, `DISCORD_TOKEN`, and `DISCORD_APPLICATION_ID` before enabling the Discord profile.
 
 ## Client Installation
 
@@ -155,16 +217,9 @@ The installer writes:
 
 Make sure `~/.local/bin` is on `PATH`.
 
-Fallback source install:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/scripts/install-clients.sh \
-  | ATHENA_REPO_URL=https://github.com/<owner>/<repo>.git sh
-```
-
 ## User Login
 
-Log in with GitHub OAuth device flow:
+Log in with GitHub App device flow:
 
 ```sh
 mvp-athena login --api-url https://athena.example.com
@@ -239,6 +294,8 @@ Authentication:
 - `POST /auth/github/device`
 - `POST /auth/github/device/poll`
 - `GET /auth/me`
+- `GET /auth/tokens`
+- `DELETE /auth/tokens/current`
 
 Knowledge:
 
@@ -255,6 +312,7 @@ Knowledge:
 - `GET /spaces/:spaceId/summary`
 - `POST /spaces/:spaceId/propose-edit/*`
 - `GET /spaces/:spaceId/audit`
+- `POST /spaces/:spaceId/reindex`
 - `POST /github/webhook`
 
 ## Repository Layout
@@ -272,7 +330,6 @@ docs/
   seed.sql      local seed data
 scripts/
   install-binary.sh
-  install-clients.sh
   build-binaries.mjs
 ```
 
@@ -322,11 +379,13 @@ node apps/cli/dist/index.js search starter
 Run with production-style storage locally:
 
 ```sh
-docker compose up -d postgres redis
+docker compose up -d postgres
 psql "$DATABASE_URL" -f docs/schema.sql
 psql "$DATABASE_URL" -f docs/seed.sql
 ATHENA_STORAGE_MODE=postgres pnpm start:api
 ```
+
+Production Compose applies only `docs/schema.sql`. `docs/seed.sql` is for local development or explicit bootstrap only.
 
 ## Client Releases
 
@@ -349,8 +408,5 @@ git push origin v0.1.0
 
 ## Current Limits
 
-- GitHub App installation token exchange is not automated yet; configure `GITHUB_TOKEN` or `GITHUB_INSTALLATION_TOKEN`.
-- GitHub webhook signatures are accepted but not yet verified or queued.
-- Redis/BullMQ indexing jobs are reserved but not implemented.
-- Search currently scans GitHub Markdown instead of using `documents` plus pgvector.
+- Search uses the `documents` index table. Run `POST /spaces/:spaceId/reindex` after importing an existing GitHub knowledge repository.
 - Binary asset upload uses GitHub Contents API; a Git LFS worker is still needed for large assets.

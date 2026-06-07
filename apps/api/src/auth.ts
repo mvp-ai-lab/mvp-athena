@@ -1,17 +1,17 @@
 import { createHash, randomBytes } from "node:crypto";
-import type { KnowledgeStore, Role, User } from "@mvp-athena/core";
-import { ValidationError } from "@mvp-athena/core";
+import type { ApiTokenSummary, GitHubRepositoryAccess, KnowledgeStore, Role, User } from "@mvp-athena/core";
+import { minRole, ValidationError } from "@mvp-athena/core";
 
 const deviceGrantType = "urn:ietf:params:oauth:grant-type:device_code";
 
 export interface AuthServiceOptions {
   store: KnowledgeStore;
-  githubClientId?: string;
-  githubClientSecret?: string;
-  githubOAuthBaseUrl?: string;
+  repositoryAccess: GitHubRepositoryAccess;
+  githubClientId: string;
   githubApiBaseUrl?: string;
   signupSpaceId?: string;
   signupRole?: Role;
+  tokenTtlDays?: number;
 }
 
 export interface DeviceFlowStart {
@@ -61,17 +61,15 @@ interface GitHubEmailResponse {
 }
 
 export class AuthService {
-  private readonly githubOAuthBaseUrl: string;
   private readonly githubApiBaseUrl: string;
 
   constructor(private readonly options: AuthServiceOptions) {
-    this.githubOAuthBaseUrl = options.githubOAuthBaseUrl ?? "https://github.com";
     this.githubApiBaseUrl = options.githubApiBaseUrl ?? "https://api.github.com";
   }
 
   async startGitHubDeviceFlow(): Promise<DeviceFlowStart> {
     const clientId = this.requireClientId();
-    const response = await this.githubRequest<GitHubDeviceResponse>(`${this.githubOAuthBaseUrl}/login/device/code`, {
+    const response = await this.githubRequest<GitHubDeviceResponse>("https://github.com/login/device/code", {
       method: "POST",
       body: new URLSearchParams({
         client_id: clientId,
@@ -95,11 +93,8 @@ export class AuthService {
       device_code: deviceCode,
       grant_type: deviceGrantType
     });
-    if (this.options.githubClientSecret) {
-      params.set("client_secret", this.options.githubClientSecret);
-    }
 
-    const tokenResponse = await this.githubRequest<GitHubTokenResponse>(`${this.githubOAuthBaseUrl}/login/oauth/access_token`, {
+    const tokenResponse = await this.githubRequest<GitHubTokenResponse>("https://github.com/login/oauth/access_token", {
       method: "POST",
       body: params
     });
@@ -118,29 +113,48 @@ export class AuthService {
     }
 
     const user = await this.githubUser(tokenResponse.access_token);
+    const repositoryRole = await this.options.repositoryAccess.requireUserRole(user);
     await this.options.store.upsertUser(user);
-    if (this.options.signupSpaceId && this.options.signupRole) {
+    if (this.options.signupSpaceId) {
       await this.options.store.upsertMembership({
         userId: user.id,
         spaceId: this.options.signupSpaceId,
-        role: this.options.signupRole
+        role: this.signupRole(repositoryRole)
       });
     }
 
     const token = createPlainToken();
+    const createdAt = new Date();
     await this.options.store.createApiToken({
       tokenHash: hashToken(token),
       userId: user.id,
       name: tokenName,
-      createdAt: new Date().toISOString()
+      createdAt: createdAt.toISOString(),
+      expiresAt: new Date(createdAt.getTime() + this.tokenTtlMs()).toISOString()
     });
 
     return { status: "authorized", token, user };
   }
 
+  async listTokens(user: User): Promise<ApiTokenSummary[]> {
+    return this.options.store.listApiTokensForUser(user.id);
+  }
+
+  async revokeToken(user: User, token: string): Promise<void> {
+    await this.options.store.revokeApiToken(hashToken(token), user.id);
+  }
+
+  private signupRole(repositoryRole: Role): Role {
+    return this.options.signupRole ? minRole(this.options.signupRole, repositoryRole) : repositoryRole;
+  }
+
+  private tokenTtlMs(): number {
+    return (this.options.tokenTtlDays ?? 30) * 24 * 60 * 60 * 1000;
+  }
+
   private async githubUser(accessToken: string): Promise<User> {
     const user = await this.githubApiRequest<GitHubUserResponse>("/user", accessToken);
-    const emails = await this.githubApiRequest<GitHubEmailResponse[]>("/user/emails", accessToken);
+    const emails = await this.githubVerifiedEmails(accessToken);
     const primaryEmail = emails.find((email) => email.primary && email.verified) ?? emails.find((email) => email.verified);
     const email = primaryEmail?.email ?? user.email ?? `${user.id}+${user.login}@users.noreply.github.com`;
     return {
@@ -166,6 +180,14 @@ export class AuthService {
     return (await response.json()) as T;
   }
 
+  private async githubVerifiedEmails(accessToken: string): Promise<GitHubEmailResponse[]> {
+    try {
+      return await this.githubApiRequest<GitHubEmailResponse[]>("/user/emails", accessToken);
+    } catch {
+      return [];
+    }
+  }
+
   private async githubRequest<T>(url: string, init: RequestInit): Promise<T> {
     const response = await fetch(url, {
       ...init,
@@ -176,14 +198,14 @@ export class AuthService {
       }
     });
     if (!response.ok) {
-      throw new Error(`GitHub OAuth failed: ${response.status} ${await response.text()}`);
+      throw new Error(`GitHub device auth failed: ${response.status} ${await response.text()}`);
     }
     return (await response.json()) as T;
   }
 
   private requireClientId(): string {
     if (!this.options.githubClientId) {
-      throw new Error("GITHUB_OAUTH_CLIENT_ID is required for GitHub OAuth login");
+      throw new Error("GITHUB_APP_CLIENT_ID is required for GitHub App device login");
     }
     return this.options.githubClientId;
   }

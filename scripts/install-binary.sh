@@ -47,6 +47,13 @@ require_command curl
 require_command tar
 require_command uname
 require_command install
+if command -v sha256sum >/dev/null 2>&1; then
+  checksum_command="sha256sum"
+elif command -v shasum >/dev/null 2>&1; then
+  checksum_command="shasum -a 256"
+else
+  die "missing required command: sha256sum or shasum"
+fi
 
 case "$(uname -s)" in
   Linux) os="linux" ;;
@@ -75,6 +82,12 @@ trap 'rm -rf "$tmp_dir"' EXIT
 
 info "downloading $url"
 curl -fL "$url" -o "$tmp_dir/$asset"
+curl -fL "$url.sha256" -o "$tmp_dir/$asset.sha256"
+
+info "verifying $asset"
+expected_sha=$(awk '{print $1}' "$tmp_dir/$asset.sha256")
+actual_sha=$($checksum_command "$tmp_dir/$asset" | awk '{print $1}')
+[ "$expected_sha" = "$actual_sha" ] || die "checksum mismatch for $asset"
 
 info "extracting $asset"
 tar -xzf "$tmp_dir/$asset" -C "$tmp_dir"

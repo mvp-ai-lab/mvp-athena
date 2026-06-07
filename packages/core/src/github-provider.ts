@@ -1,4 +1,5 @@
 import { Buffer } from "node:buffer";
+import { createSign } from "node:crypto";
 import { ConflictError, NotFoundError } from "./errors.js";
 import type {
   CommitAuthor,
@@ -13,10 +14,19 @@ import type {
 interface GitHubProviderOptions {
   owner: string;
   repo: string;
-  token: string;
+  tokenProvider: GitHubTokenProvider;
   branch?: string;
   apiBaseUrl?: string;
   committer?: CommitAuthor;
+}
+
+export type GitHubTokenProvider = () => Promise<string> | string;
+
+export interface GitHubAppInstallationTokenProviderOptions {
+  clientId: string;
+  installationId: string;
+  privateKey: string;
+  apiBaseUrl?: string;
 }
 
 interface GitHubContentResponse {
@@ -47,6 +57,9 @@ interface GitHubTreeResponse {
 
 interface GitHubCommitResponse {
   sha: string;
+  tree?: {
+    sha: string;
+  };
   commit: {
     message: string;
     author?: {
@@ -57,15 +70,84 @@ interface GitHubCommitResponse {
   };
 }
 
+interface GitHubInstallationTokenResponse {
+  token: string;
+  expires_at: string;
+}
+
+interface GitHubRefResponse {
+  object: {
+    sha: string;
+  };
+}
+
+interface GitHubTreeCreateResponse {
+  sha: string;
+}
+
+export class GitHubAppInstallationTokenProvider {
+  private readonly apiBaseUrl: string;
+  private cachedToken?: { token: string; expiresAt: number };
+
+  constructor(private readonly options: GitHubAppInstallationTokenProviderOptions) {
+    this.apiBaseUrl = options.apiBaseUrl ?? "https://api.github.com";
+  }
+
+  async token(): Promise<string> {
+    if (this.cachedToken && Date.now() < this.cachedToken.expiresAt - 60_000) {
+      return this.cachedToken.token;
+    }
+
+    const response = await fetch(
+      `${this.apiBaseUrl}/app/installations/${encodeURIComponent(this.options.installationId)}/access_tokens`,
+      {
+        method: "POST",
+        headers: {
+          accept: "application/vnd.github+json",
+          authorization: `Bearer ${this.createJwt()}`,
+          "content-type": "application/json",
+          "x-github-api-version": "2022-11-28"
+        }
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`GitHub App token request failed: ${response.status} ${await response.text()}`);
+    }
+
+    const body = (await response.json()) as GitHubInstallationTokenResponse;
+    this.cachedToken = {
+      token: body.token,
+      expiresAt: new Date(body.expires_at).getTime()
+    };
+    return body.token;
+  }
+
+  private createJwt(): string {
+    const now = Math.floor(Date.now() / 1000);
+    const header = base64UrlJson({ alg: "RS256", typ: "JWT" });
+    const payload = base64UrlJson({
+      iat: now - 60,
+      exp: now + 9 * 60,
+      iss: this.options.clientId
+    });
+    const unsigned = `${header}.${payload}`;
+    const signature = createSign("RSA-SHA256").update(unsigned).sign(this.options.privateKey, "base64url");
+    return `${unsigned}.${signature}`;
+  }
+}
+
 export class GitHubGitProvider implements GitProvider {
   private readonly branch: string;
   private readonly apiBaseUrl: string;
   private readonly committer: CommitAuthor;
+  private readonly tokenProvider: GitHubTokenProvider;
 
   constructor(private readonly options: GitHubProviderOptions) {
     this.branch = options.branch ?? "main";
     this.apiBaseUrl = options.apiBaseUrl ?? "https://api.github.com";
     this.committer = options.committer ?? { name: "mvp-athena", email: "mvp-athena@example.com" };
+    this.tokenProvider = options.tokenProvider;
   }
 
   async list(prefix: string): Promise<GitObject[]> {
@@ -147,20 +229,58 @@ export class GitHubGitProvider implements GitProvider {
       throw new ConflictError(`Target path already exists: ${input.toPath}`);
     }
 
-    const written = await this.write({
-      path: input.toPath,
-      content: current.content,
-      encoding: current.encoding,
-      message: input.message,
-      author: input.author
+    const ref = await this.request<GitHubRefResponse>(`/repos/${this.options.owner}/${this.options.repo}/git/ref/heads/${encodeURIComponent(this.branch)}`);
+    const baseCommit = await this.request<GitHubCommitResponse>(`/repos/${this.options.owner}/${this.options.repo}/git/commits/${encodeURIComponent(ref.object.sha)}`);
+    if (!baseCommit.tree?.sha) {
+      throw new Error(`GitHub commit has no tree: ${ref.object.sha}`);
+    }
+
+    const tree = await this.request<GitHubTreeCreateResponse>(`/repos/${this.options.owner}/${this.options.repo}/git/trees`, {
+      method: "POST",
+      body: JSON.stringify({
+        base_tree: baseCommit.tree.sha,
+        tree: [
+          {
+            path: input.toPath,
+            mode: "100644",
+            type: "blob",
+            sha: current.sha
+          },
+          {
+            path: input.fromPath,
+            mode: "100644",
+            type: "blob",
+            sha: null
+          }
+        ]
+      })
     });
-    await this.delete({
-      path: input.fromPath,
-      message: input.message,
-      author: input.author,
-      expectedSha: current.sha
+
+    const commit = await this.request<GitHubCommitResponse>(`/repos/${this.options.owner}/${this.options.repo}/git/commits`, {
+      method: "POST",
+      body: JSON.stringify({
+        message: input.message,
+        tree: tree.sha,
+        parents: [ref.object.sha],
+        author: input.author,
+        committer: this.committer
+      })
     });
-    return written;
+
+    await this.request<GitHubRefResponse>(`/repos/${this.options.owner}/${this.options.repo}/git/refs/heads/${encodeURIComponent(this.branch)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        sha: commit.sha,
+        force: false
+      })
+    });
+
+    return {
+      commitSha: commit.sha,
+      objectSha: current.sha,
+      branch: this.branch,
+      path: input.toPath
+    };
   }
 
   async history(path: string): Promise<GitHistoryEntry[]> {
@@ -196,11 +316,12 @@ export class GitHubGitProvider implements GitProvider {
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const token = await this.tokenProvider();
     const response = await fetch(`${this.apiBaseUrl}${path}`, {
       ...init,
       headers: {
         accept: "application/vnd.github+json",
-        authorization: `Bearer ${this.options.token}`,
+        authorization: `Bearer ${token}`,
         "content-type": "application/json",
         "x-github-api-version": "2022-11-28",
         ...init.headers
@@ -222,4 +343,8 @@ export class GitHubGitProvider implements GitProvider {
 
 function encodePath(path: string): string {
   return path.split("/").map(encodeURIComponent).join("/");
+}
+
+function base64UrlJson(value: unknown): string {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
 }

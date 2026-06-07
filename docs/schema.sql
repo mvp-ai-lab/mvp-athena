@@ -38,14 +38,23 @@ create table if not exists space_memberships (
 create table if not exists documents (
   space_id text not null references spaces(id) on delete cascade,
   path text not null,
+  repo_path text not null,
   title text not null,
   tags text[] not null default '{}',
   visibility text not null default 'internal',
+  content text not null default '',
   sha text,
   updated_at timestamptz not null,
   indexed_at timestamptz,
   embedding vector(1536),
   primary key (space_id, path)
+);
+
+alter table documents add column if not exists repo_path text;
+alter table documents add column if not exists content text not null default '';
+create index if not exists documents_space_updated_at_idx on documents(space_id, updated_at desc);
+create index if not exists documents_search_idx on documents using gin (
+  to_tsvector('simple', coalesce(title, '') || ' ' || array_to_string(tags, ' ') || ' ' || coalesce(content, ''))
 );
 
 create table if not exists audit_logs (

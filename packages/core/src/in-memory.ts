@@ -1,7 +1,10 @@
 import { ConflictError, NotFoundError } from "./errors.js";
 import type {
   ApiToken,
+  ApiTokenSummary,
   AuditLogEntry,
+  DocumentIndexEntry,
+  DocumentListItem,
   GitCommitResult,
   GitHistoryEntry,
   GitMoveInput,
@@ -10,6 +13,7 @@ import type {
   GitWriteInput,
   KnowledgeStore,
   Role,
+  SearchResult,
   Space,
   SpaceMembership,
   User
@@ -24,6 +28,7 @@ export class InMemoryKnowledgeStore implements KnowledgeStore {
   private readonly apiTokens = new Map<string, ApiToken>();
   private readonly spaces = new Map<string, Space>();
   private readonly memberships = new Map<string, SpaceMembership>();
+  private readonly documents = new Map<string, DocumentIndexEntry>();
   private readonly auditLogs: AuditLogEntry[] = [];
 
   constructor(seed?: { users?: User[]; spaces?: Space[]; memberships?: SpaceMembership[] }) {
@@ -69,6 +74,35 @@ export class InMemoryKnowledgeStore implements KnowledgeStore {
     }
   }
 
+  async listApiTokensForUser(userId: string): Promise<ApiTokenSummary[]> {
+    return [...this.apiTokens.entries()]
+      .filter(([, token]) => token.userId === userId)
+      .sort(([, left], [, right]) => right.createdAt.localeCompare(left.createdAt))
+      .map(([tokenHash, token]) => ({
+        id: tokenHash.slice(0, 16),
+        name: token.name,
+        createdAt: token.createdAt,
+        lastUsedAt: token.lastUsedAt,
+        expiresAt: token.expiresAt,
+        revokedAt: token.revokedAt
+      }));
+  }
+
+  async revokeApiToken(tokenHash: string, userId: string): Promise<void> {
+    const token = this.apiTokens.get(tokenHash);
+    if (token?.userId === userId && !token.revokedAt) {
+      this.apiTokens.set(tokenHash, { ...token, revokedAt: new Date().toISOString() });
+    }
+  }
+
+  async revokeApiTokensForUser(userId: string): Promise<void> {
+    for (const [tokenHash, token] of this.apiTokens.entries()) {
+      if (token.userId === userId && !token.revokedAt) {
+        this.apiTokens.set(tokenHash, { ...token, revokedAt: new Date().toISOString() });
+      }
+    }
+  }
+
   async listSpacesForUser(userId: string): Promise<Array<Space & { role: Role }>> {
     return [...this.memberships.values()]
       .filter((membership) => membership.userId === userId)
@@ -85,6 +119,48 @@ export class InMemoryKnowledgeStore implements KnowledgeStore {
 
   async getMembership(userId: string, spaceId: string): Promise<SpaceMembership | null> {
     return this.memberships.get(this.membershipKey(userId, spaceId)) ?? null;
+  }
+
+  async upsertDocumentIndex(entry: DocumentIndexEntry): Promise<void> {
+    this.documents.set(this.documentKey(entry.spaceId, entry.path), entry);
+  }
+
+  async deleteDocumentIndex(spaceId: string, path: string): Promise<void> {
+    this.documents.delete(this.documentKey(spaceId, path));
+  }
+
+  async listDocumentIndex(spaceId: string): Promise<DocumentListItem[]> {
+    return [...this.documents.values()]
+      .filter((entry) => entry.spaceId === spaceId)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || left.path.localeCompare(right.path))
+      .map(({ content: _content, ...entry }) => entry);
+  }
+
+  async searchDocumentIndex(spaceIds: string[], query: string): Promise<SearchResult[]> {
+    const normalizedQuery = query.trim().toLowerCase();
+    if (!normalizedQuery) {
+      return [];
+    }
+    return [...this.documents.values()]
+      .filter((entry) => spaceIds.includes(entry.spaceId))
+      .map((entry) => {
+        const haystack = `${entry.title}\n${entry.tags.join(" ")}\n${entry.content}`.toLowerCase();
+        const index = haystack.indexOf(normalizedQuery);
+        if (index < 0) {
+          return null;
+        }
+        const snippetStart = Math.max(0, index - 80);
+        return {
+          spaceId: entry.spaceId,
+          path: entry.path,
+          title: entry.title,
+          snippet: entry.content.slice(snippetStart, snippetStart + 180).replace(/\s+/g, " ").trim(),
+          score: 1 / (1 + index),
+          tags: entry.tags
+        };
+      })
+      .filter((result): result is SearchResult => Boolean(result))
+      .sort((left, right) => right.score - left.score);
   }
 
   async appendAuditLog(entry: AuditLogEntry): Promise<void> {
@@ -105,6 +181,10 @@ export class InMemoryKnowledgeStore implements KnowledgeStore {
 
   private membershipKey(userId: string, spaceId: string): string {
     return `${userId}:${spaceId}`;
+  }
+
+  private documentKey(spaceId: string, path: string): string {
+    return `${spaceId}:${path}`;
   }
 }
 

@@ -10,7 +10,7 @@ export class AthenaApiClient {
     const response = await fetch(`${this.baseUrl}${path}`, {
       method,
       headers: {
-        "content-type": "application/json",
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
         ...(this.token ? { authorization: `Bearer ${this.token}` } : {})
       },
       body: body === undefined ? undefined : JSON.stringify(body)

@@ -4,7 +4,16 @@ import type { DocumentFrontmatter } from "./types.js";
 const frontmatterPattern = /^---\n([\s\S]*?)\n---\n?/;
 
 function readScalar(value: string): string {
-  return value.replace(/^["']|["']$/g, "").trim();
+  const trimmed = value.trim();
+  if (trimmed.startsWith("\"")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      return typeof parsed === "string" ? parsed : trimmed;
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed.replace(/^'|'$/g, "").trim();
 }
 
 function parseYamlSubset(input: string): Record<string, string | string[]> {
@@ -103,21 +112,25 @@ export function serializeMarkdown(input: {
   const visibility = input.visibility ?? "internal";
 
   const arrayBlock = (name: string, values: string[]) =>
-    values.length === 0 ? `${name}: []` : `${name}:\n${values.map((value) => `  - ${value}`).join("\n")}`;
+    values.length === 0 ? `${name}: []` : `${name}:\n${values.map((value) => `  - ${yamlString(value)}`).join("\n")}`;
 
   return [
     "---",
-    `title: ${input.title}`,
+    `title: ${yamlString(input.title)}`,
     arrayBlock("owners", owners),
     arrayBlock("tags", tags),
-    `visibility: ${visibility}`,
-    `created_at: ${createdAt}`,
-    `updated_at: ${updatedAt}`,
+    `visibility: ${yamlString(visibility)}`,
+    `created_at: ${yamlString(createdAt)}`,
+    `updated_at: ${yamlString(updatedAt)}`,
     "---",
     "",
     input.body.trimEnd(),
     ""
   ].join("\n");
+}
+
+function yamlString(value: string): string {
+  return JSON.stringify(value);
 }
 
 export function updateMarkdownTimestamp(raw: string, timestamp = new Date().toISOString()): string {

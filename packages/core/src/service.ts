@@ -1,6 +1,6 @@
 import { ConflictError, NotFoundError } from "./errors.js";
 import { parseMarkdown, serializeMarkdown, updateMarkdownTimestamp } from "./markdown.js";
-import { requireSpaceRole } from "./permissions.js";
+import { minRole, requireRepositoryRole, requireSpaceRole } from "./permissions.js";
 import { fromRepoDocPath, spaceDocsPrefix, toRepoAssetPath, toRepoDocPath } from "./paths.js";
 import type {
   AuditAction,
@@ -55,29 +55,23 @@ export class KnowledgeService {
   constructor(private readonly options: KnowledgeServiceOptions) {}
 
   async listSpaces(ctx: RequestContext) {
-    return this.options.store.listSpacesForUser(ctx.actor.id);
+    requireRepositoryRole(ctx, "read");
+    const spaces = await this.options.store.listSpacesForUser(ctx.actor.id);
+    if (!ctx.repositoryRole) {
+      return spaces;
+    }
+    const repositoryRole = ctx.repositoryRole;
+    return spaces.map((space) => ({ ...space, role: minRole(space.role, repositoryRole) }));
   }
 
   async listDocs(ctx: RequestContext, spaceId: string): Promise<DocumentListItem[]> {
-    const { space } = await requireSpaceRole(this.options.store, ctx.actor.id, spaceId, "read");
-    const objects = await this.options.git.list(spaceDocsPrefix(space));
-    return objects
-      .filter((object) => object.path.endsWith(".md") && object.encoding === "utf8")
-      .map((object) => {
-        const parsed = parseMarkdown(object.content);
-        return {
-          spaceId,
-          path: fromRepoDocPath(space, object.path),
-          repoPath: object.path,
-          sha: object.sha,
-          title: parsed.frontmatter.title,
-          tags: parsed.frontmatter.tags,
-          updatedAt: parsed.frontmatter.updatedAt
-        };
-      });
+    requireRepositoryRole(ctx, "read");
+    await requireSpaceRole(this.options.store, ctx.actor.id, spaceId, "read");
+    return this.options.store.listDocumentIndex(spaceId);
   }
 
   async readDoc(ctx: RequestContext, spaceId: string, path: string): Promise<KnowledgeDocument> {
+    requireRepositoryRole(ctx, "read");
     const { space } = await requireSpaceRole(this.options.store, ctx.actor.id, spaceId, "read");
     const repoPath = toRepoDocPath(space, path);
     const object = await this.options.git.read(repoPath);
@@ -98,6 +92,7 @@ export class KnowledgeService {
   }
 
   async createDoc(ctx: RequestContext, input: CreateDocInput) {
+    requireRepositoryRole(ctx, "write");
     const { space } = await requireSpaceRole(this.options.store, ctx.actor.id, input.spaceId, "write");
     const repoPath = toRepoDocPath(space, input.path);
     if (await this.options.git.read(repoPath)) {
@@ -118,11 +113,13 @@ export class KnowledgeService {
       author: this.commitAuthor(ctx),
       expectedSha: undefined
     });
+    await this.indexDocument(input.spaceId, repoPath, result.objectSha ?? "", raw);
     await this.audit(ctx, "doc.create", input.spaceId, input.path, result.commitSha, `Created ${input.path}`);
     return { ...result, repoPath };
   }
 
   async updateDoc(ctx: RequestContext, input: UpdateDocInput) {
+    requireRepositoryRole(ctx, "write");
     const { space } = await requireSpaceRole(this.options.store, ctx.actor.id, input.spaceId, "write");
     const repoPath = toRepoDocPath(space, input.path);
     const current = await this.options.git.read(repoPath);
@@ -155,11 +152,13 @@ export class KnowledgeService {
       author: this.commitAuthor(ctx),
       expectedSha: input.expectedSha
     });
+    await this.indexDocument(input.spaceId, repoPath, result.objectSha ?? current.sha, nextRaw);
     await this.audit(ctx, "doc.update", input.spaceId, input.path, result.commitSha, `Updated ${input.path}`);
     return { ...result, repoPath };
   }
 
   async deleteDoc(ctx: RequestContext, spaceId: string, path: string, expectedSha?: string) {
+    requireRepositoryRole(ctx, "write");
     const { space } = await requireSpaceRole(this.options.store, ctx.actor.id, spaceId, "write");
     const repoPath = toRepoDocPath(space, path);
     const result = await this.options.git.delete({
@@ -168,11 +167,13 @@ export class KnowledgeService {
       author: this.commitAuthor(ctx),
       expectedSha
     });
+    await this.options.store.deleteDocumentIndex(spaceId, path);
     await this.audit(ctx, "doc.delete", spaceId, path, result.commitSha, `Deleted ${path}`);
     return { ...result, repoPath };
   }
 
   async uploadAsset(ctx: RequestContext, input: UploadAssetInput) {
+    requireRepositoryRole(ctx, "write");
     const { space } = await requireSpaceRole(this.options.store, ctx.actor.id, input.spaceId, "write");
     const repoPath = toRepoAssetPath(space, input.path);
     const result = await this.options.git.write({
@@ -188,6 +189,7 @@ export class KnowledgeService {
   }
 
   async moveDoc(ctx: RequestContext, input: MoveDocInput) {
+    requireRepositoryRole(ctx, "write");
     const { space } = await requireSpaceRole(this.options.store, ctx.actor.id, input.spaceId, "write");
     const fromRepoPath = toRepoDocPath(space, input.fromPath);
     const toRepoPath = toRepoDocPath(space, input.toPath);
@@ -198,6 +200,11 @@ export class KnowledgeService {
       author: this.commitAuthor(ctx),
       expectedSha: input.expectedSha
     });
+    const moved = await this.options.git.read(toRepoPath);
+    if (moved) {
+      await this.indexDocument(input.spaceId, toRepoPath, moved.sha, moved.content);
+    }
+    await this.options.store.deleteDocumentIndex(input.spaceId, input.fromPath);
     await this.audit(
       ctx,
       "doc.move",
@@ -210,6 +217,7 @@ export class KnowledgeService {
   }
 
   async getDocHistory(ctx: RequestContext, spaceId: string, path: string) {
+    requireRepositoryRole(ctx, "read");
     const { space } = await requireSpaceRole(this.options.store, ctx.actor.id, spaceId, "read");
     const repoPath = toRepoDocPath(space, path);
     await this.audit(ctx, "history.read", spaceId, path, undefined, `Read history for ${path}`);
@@ -217,38 +225,14 @@ export class KnowledgeService {
   }
 
   async searchKnowledge(ctx: RequestContext, query: string, spaceId?: string): Promise<SearchResult[]> {
+    requireRepositoryRole(ctx, "read");
     const spaces = spaceId
       ? [(await requireSpaceRole(this.options.store, ctx.actor.id, spaceId, "read")).space]
       : await this.options.store.listSpacesForUser(ctx.actor.id);
 
-    const normalizedQuery = query.trim().toLowerCase();
-    const results: SearchResult[] = [];
-    for (const space of spaces) {
-      const objects = await this.options.git.list(spaceDocsPrefix(space));
-      for (const object of objects) {
-        if (!object.path.endsWith(".md") || object.encoding !== "utf8") {
-          continue;
-        }
-        const parsed = parseMarkdown(object.content);
-        const haystack = `${parsed.frontmatter.title}\n${parsed.frontmatter.tags.join(" ")}\n${parsed.body}`.toLowerCase();
-        if (!normalizedQuery || !haystack.includes(normalizedQuery)) {
-          continue;
-        }
-        const index = haystack.indexOf(normalizedQuery);
-        const snippetStart = Math.max(0, index - 80);
-        const snippet = parsed.body.slice(snippetStart, snippetStart + 180).replace(/\s+/g, " ").trim();
-        results.push({
-          spaceId: space.id,
-          path: fromRepoDocPath(space, object.path),
-          title: parsed.frontmatter.title,
-          snippet,
-          score: normalizedQuery ? 1 / (1 + index) : 0,
-          tags: parsed.frontmatter.tags
-        });
-      }
-    }
+    const results = await this.options.store.searchDocumentIndex(spaces.map((space) => space.id), query);
     await this.audit(ctx, "search", spaceId, undefined, undefined, `Searched knowledge for "${query}"`);
-    return results.sort((a, b) => b.score - a.score);
+    return results;
   }
 
   async summarizeSpace(ctx: RequestContext, spaceId: string) {
@@ -263,6 +247,7 @@ export class KnowledgeService {
   }
 
   async proposeEdit(ctx: RequestContext, input: UpdateDocInput) {
+    requireRepositoryRole(ctx, "read");
     const current = await this.readDoc(ctx, input.spaceId, input.path);
     await this.audit(ctx, "edit.propose", input.spaceId, input.path, undefined, `Proposed edit for ${input.path}`);
     return {
@@ -281,8 +266,24 @@ export class KnowledgeService {
   }
 
   async listAuditLogs(ctx: RequestContext, spaceId: string): Promise<AuditLogEntry[]> {
+    requireRepositoryRole(ctx, "admin");
     await requireSpaceRole(this.options.store, ctx.actor.id, spaceId, "admin");
     return this.options.store.listAuditLogs(spaceId);
+  }
+
+  async reindexSpace(ctx: RequestContext, spaceId: string): Promise<{ indexed: number }> {
+    requireRepositoryRole(ctx, "admin");
+    const { space } = await requireSpaceRole(this.options.store, ctx.actor.id, spaceId, "admin");
+    const objects = await this.options.git.list(spaceDocsPrefix(space));
+    let indexed = 0;
+    for (const object of objects) {
+      if (object.path.endsWith(".md") && object.encoding === "utf8") {
+        await this.indexDocument(spaceId, object.path, object.sha, object.content);
+        indexed += 1;
+      }
+    }
+    await this.audit(ctx, "index.rebuild", spaceId, undefined, undefined, `Reindexed ${indexed} documents`);
+    return { indexed };
   }
 
   private commitAuthor(ctx: RequestContext): CommitAuthor {
@@ -310,6 +311,24 @@ export class KnowledgeService {
       source: ctx.source,
       summary,
       createdAt: new Date().toISOString()
+    });
+  }
+
+  private async indexDocument(spaceId: string, repoPath: string, sha: string, raw: string): Promise<void> {
+    const space = await this.options.store.getSpace(spaceId);
+    if (!space) {
+      throw new NotFoundError(`Space not found: ${spaceId}`);
+    }
+    const parsed = parseMarkdown(raw);
+    await this.options.store.upsertDocumentIndex({
+      spaceId,
+      path: fromRepoDocPath(space, repoPath),
+      repoPath,
+      sha,
+      title: parsed.frontmatter.title,
+      tags: parsed.frontmatter.tags,
+      updatedAt: parsed.frontmatter.updatedAt,
+      content: parsed.body
     });
   }
 }

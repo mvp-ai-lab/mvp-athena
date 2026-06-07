@@ -1,5 +1,5 @@
 import { ForbiddenError, NotFoundError } from "./errors.js";
-import type { KnowledgeStore, Role, Space } from "./types.js";
+import type { KnowledgeStore, RequestContext, Role, Space } from "./types.js";
 
 const roleRank: Record<Role, number> = {
   viewer: 1,
@@ -19,6 +19,23 @@ export function canAdmin(role: Role): boolean {
   return roleRank[role] >= roleRank.owner;
 }
 
+export function roleAllows(role: Role, required: "read" | "write" | "admin"): boolean {
+  return required === "read" ? canRead(role) : required === "write" ? canWrite(role) : canAdmin(role);
+}
+
+export function minRole(left: Role, right: Role): Role {
+  return roleRank[left] <= roleRank[right] ? left : right;
+}
+
+export function requireRepositoryRole(ctx: RequestContext, required: "read" | "write" | "admin"): void {
+  if (!ctx.repositoryRole) {
+    return;
+  }
+  if (!roleAllows(ctx.repositoryRole, required)) {
+    throw new ForbiddenError(`GitHub repository role ${ctx.repositoryRole} cannot ${required}`);
+  }
+}
+
 export async function requireSpaceRole(
   store: KnowledgeStore,
   userId: string,
@@ -35,14 +52,7 @@ export async function requireSpaceRole(
     throw new ForbiddenError(`User is not a member of space: ${spaceId}`);
   }
 
-  const allowed =
-    required === "read"
-      ? canRead(membership.role)
-      : required === "write"
-        ? canWrite(membership.role)
-        : canAdmin(membership.role);
-
-  if (!allowed) {
+  if (!roleAllows(membership.role, required)) {
     throw new ForbiddenError(`Role ${membership.role} cannot ${required} in space ${spaceId}`);
   }
 

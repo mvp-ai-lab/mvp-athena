@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { arch, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -119,6 +120,7 @@ const archive = join(releaseDir, `mvp-athena-${target}.tar.gz`);
 rmSync(archive, { force: true });
 if (existsSyncCommand("tar")) {
   run("tar", ["-czf", archive, "-C", releaseDir, `mvp-athena-${target}`]);
+  writeFileSync(`${archive}.sha256`, `${sha256File(archive)}  ${`mvp-athena-${target}.tar.gz`}\n`);
   console.log(`Wrote ${archive}`);
 } else {
   console.log(`Wrote ${outDir}`);
@@ -147,4 +149,8 @@ function existsSyncCommand(command) {
     shell: hostPlatform !== "win32"
   });
   return result.status === 0;
+}
+
+function sha256File(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
 }

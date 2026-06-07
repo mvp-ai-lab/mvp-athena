@@ -22,6 +22,10 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function encodePath(path: string): string {
+  return path.split("/").map(encodeURIComponent).join("/");
+}
+
 program
   .name("mvp-athena")
   .description("Agent-first team knowledge CLI")
@@ -29,7 +33,7 @@ program
 
 program
   .command("login")
-  .description("Log in with GitHub OAuth device flow")
+  .description("Log in with GitHub App device flow")
   .option("--api-url <url>", "Athena API URL")
   .option("--token-name <name>", "Name for this client token", "cli")
   .option("--status", "Show the configured API endpoint and current token status")
@@ -113,7 +117,7 @@ program
   .description("Read a Markdown document")
   .action(async (space, path, options) => {
     const client = await getClient();
-    const doc = await client.get<{ body: string; raw: string }>(`/spaces/${encodeURIComponent(space)}/docs/${path}`);
+    const doc = await client.get<{ body: string; raw: string }>(`/spaces/${encodeURIComponent(space)}/docs/${encodePath(path)}`);
     console.log(options.raw ? doc.raw : doc.body);
   });
 
@@ -149,7 +153,7 @@ program
   .action(async (space, path, options) => {
     const client = await getClient();
     const content = options.file ? await readFile(options.file, "utf8") : (options.body ?? "");
-    printJson(await client.patch(`/spaces/${encodeURIComponent(space)}/docs/${path}`, {
+    printJson(await client.patch(`/spaces/${encodeURIComponent(space)}/docs/${encodePath(path)}`, {
       ...(options.raw ? { raw: content } : { body: content }),
       expectedSha: options.sha
     }));
@@ -158,7 +162,7 @@ program
 program.command("delete").argument("<space>").argument("<path>").option("--sha <expectedSha>").description("Delete a document").action(async (space, path, options) => {
   const client = await getClient();
   const query = options.sha ? `?expectedSha=${encodeURIComponent(options.sha)}` : "";
-  printJson(await client.delete(`/spaces/${encodeURIComponent(space)}/docs/${path}${query}`));
+  printJson(await client.delete(`/spaces/${encodeURIComponent(space)}/docs/${encodePath(path)}${query}`));
 });
 
 program.command("upload").argument("<space>").argument("<assetPath>").argument("<file>").description("Upload an asset as Git LFS content").action(async (space, assetPath, file) => {
@@ -169,12 +173,12 @@ program.command("upload").argument("<space>").argument("<assetPath>").argument("
 
 program.command("move").argument("<space>").argument("<fromPath>").argument("<toPath>").option("--sha <expectedSha>").description("Move a document").action(async (space, fromPath, toPath, options) => {
   const client = await getClient();
-  printJson(await client.post(`/spaces/${encodeURIComponent(space)}/move-doc/${fromPath}`, { toPath, expectedSha: options.sha }));
+  printJson(await client.post(`/spaces/${encodeURIComponent(space)}/move-doc/${encodePath(fromPath)}`, { toPath, expectedSha: options.sha }));
 });
 
 program.command("history").argument("<space>").argument("<path>").description("Read document history").action(async (space, path) => {
   const client = await getClient();
-  printJson(await client.get(`/spaces/${encodeURIComponent(space)}/history/${path}`));
+  printJson(await client.get(`/spaces/${encodeURIComponent(space)}/history/${encodePath(path)}`));
 });
 
 program.command("summary").argument("<space>").description("Summarize a space index").action(async (space) => {

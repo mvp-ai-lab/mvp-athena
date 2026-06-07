@@ -1,9 +1,13 @@
 import pg from "pg";
 import type {
   ApiToken,
+  ApiTokenSummary,
   AuditLogEntry,
+  DocumentIndexEntry,
+  DocumentListItem,
   KnowledgeStore,
   Role,
+  SearchResult,
   Space,
   SpaceMembership,
   User
@@ -41,6 +45,17 @@ interface SpaceForUserRow extends SpaceRow {
   role: Role;
 }
 
+interface DocumentRow {
+  space_id: string;
+  path: string;
+  repo_path: string;
+  title: string;
+  tags: string[];
+  sha: string | null;
+  updated_at: Date | string;
+  content?: string;
+}
+
 interface AuditLogRow {
   id: string;
   actor_user_id: string;
@@ -51,6 +66,15 @@ interface AuditLogRow {
   source: AuditLogEntry["source"];
   summary: string;
   created_at: Date | string;
+}
+
+interface ApiTokenRow {
+  token_hash: string;
+  name: string;
+  created_at: Date | string;
+  last_used_at: Date | string | null;
+  expires_at: Date | string | null;
+  revoked_at: Date | string | null;
 }
 
 export class PostgresKnowledgeStore implements KnowledgeStore {
@@ -135,6 +159,30 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
     await this.pool.query("update api_tokens set last_used_at = now() where token_hash = $1", [tokenHash]);
   }
 
+  async listApiTokensForUser(userId: string): Promise<ApiTokenSummary[]> {
+    const result = await this.pool.query<ApiTokenRow>(
+      `
+        select token_hash, name, created_at, last_used_at, expires_at, revoked_at
+        from api_tokens
+        where user_id = $1
+        order by created_at desc
+      `,
+      [userId]
+    );
+    return result.rows.map(mapApiTokenSummary);
+  }
+
+  async revokeApiToken(tokenHash: string, userId: string): Promise<void> {
+    await this.pool.query(
+      "update api_tokens set revoked_at = now() where token_hash = $1 and user_id = $2 and revoked_at is null",
+      [tokenHash, userId]
+    );
+  }
+
+  async revokeApiTokensForUser(userId: string): Promise<void> {
+    await this.pool.query("update api_tokens set revoked_at = now() where user_id = $1 and revoked_at is null", [userId]);
+  }
+
   async listSpacesForUser(userId: string): Promise<Array<Space & { role: Role }>> {
     const result = await this.pool.query<SpaceForUserRow>(
       `
@@ -163,6 +211,86 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       [userId, spaceId]
     );
     return result.rows[0] ? mapMembership(result.rows[0]) : null;
+  }
+
+  async upsertDocumentIndex(entry: DocumentIndexEntry): Promise<void> {
+    await this.pool.query(
+      `
+        insert into documents (space_id, path, repo_path, title, tags, visibility, content, sha, updated_at, indexed_at)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
+        on conflict (space_id, path) do update set
+          repo_path = excluded.repo_path,
+          title = excluded.title,
+          tags = excluded.tags,
+          visibility = excluded.visibility,
+          content = excluded.content,
+          sha = excluded.sha,
+          updated_at = excluded.updated_at,
+          indexed_at = now()
+      `,
+      [
+        entry.spaceId,
+        entry.path,
+        entry.repoPath,
+        entry.title,
+        entry.tags,
+        "internal",
+        entry.content,
+        entry.sha,
+        entry.updatedAt
+      ]
+    );
+  }
+
+  async deleteDocumentIndex(spaceId: string, path: string): Promise<void> {
+    await this.pool.query("delete from documents where space_id = $1 and path = $2", [spaceId, path]);
+  }
+
+  async listDocumentIndex(spaceId: string): Promise<DocumentListItem[]> {
+    const result = await this.pool.query<DocumentRow>(
+      `
+        select space_id, path, repo_path, title, tags, sha, updated_at
+        from documents
+        where space_id = $1
+        order by updated_at desc, path
+      `,
+      [spaceId]
+    );
+    return result.rows.map(mapDocumentListItem);
+  }
+
+  async searchDocumentIndex(spaceIds: string[], query: string): Promise<SearchResult[]> {
+    if (spaceIds.length === 0) {
+      return [];
+    }
+    const normalized = query.trim();
+    if (!normalized) {
+      return [];
+    }
+    const result = await this.pool.query<DocumentRow & { rank: number }>(
+      `
+        select space_id, path, repo_path, title, tags, sha, updated_at, content,
+          ts_rank(
+            to_tsvector('simple', coalesce(title, '') || ' ' || array_to_string(tags, ' ') || ' ' || coalesce(content, '')),
+            plainto_tsquery('simple', $2)
+          ) as rank
+        from documents
+        where space_id = any($1)
+          and to_tsvector('simple', coalesce(title, '') || ' ' || array_to_string(tags, ' ') || ' ' || coalesce(content, ''))
+            @@ plainto_tsquery('simple', $2)
+        order by rank desc, updated_at desc
+        limit 50
+      `,
+      [spaceIds, normalized]
+    );
+    return result.rows.map((row) => ({
+      spaceId: row.space_id,
+      path: row.path,
+      title: row.title,
+      snippet: makeSnippet(row.content ?? "", normalized),
+      score: Number(row.rank),
+      tags: row.tags
+    }));
   }
 
   async appendAuditLog(entry: AuditLogEntry): Promise<void> {
@@ -232,6 +360,18 @@ function mapMembership(row: MembershipRow): SpaceMembership {
   };
 }
 
+function mapDocumentListItem(row: DocumentRow): DocumentListItem {
+  return {
+    spaceId: row.space_id,
+    path: row.path,
+    repoPath: row.repo_path,
+    sha: row.sha ?? "",
+    title: row.title,
+    tags: row.tags,
+    updatedAt: toIsoString(row.updated_at)
+  };
+}
+
 function mapAuditLog(row: AuditLogRow): AuditLogEntry {
   return {
     id: row.id,
@@ -246,6 +386,24 @@ function mapAuditLog(row: AuditLogRow): AuditLogEntry {
   };
 }
 
+function mapApiTokenSummary(row: ApiTokenRow): ApiTokenSummary {
+  return {
+    id: row.token_hash.slice(0, 16),
+    name: row.name,
+    createdAt: toIsoString(row.created_at),
+    lastUsedAt: row.last_used_at ? toIsoString(row.last_used_at) : undefined,
+    expiresAt: row.expires_at ? toIsoString(row.expires_at) : undefined,
+    revokedAt: row.revoked_at ? toIsoString(row.revoked_at) : undefined
+  };
+}
+
 function toIsoString(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function makeSnippet(content: string, query: string): string {
+  const normalizedContent = content.replace(/\s+/g, " ").trim();
+  const index = normalizedContent.toLowerCase().indexOf(query.toLowerCase());
+  const start = index >= 0 ? Math.max(0, index - 80) : 0;
+  return normalizedContent.slice(start, start + 180);
 }
