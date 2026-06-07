@@ -54,7 +54,7 @@ alter table documents add column if not exists repo_path text;
 alter table documents add column if not exists content text not null default '';
 create index if not exists documents_space_updated_at_idx on documents(space_id, updated_at desc);
 create index if not exists documents_search_idx on documents using gin (
-  to_tsvector('simple', coalesce(title, '') || ' ' || array_to_string(tags, ' ') || ' ' || coalesce(content, ''))
+  to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, ''))
 );
 
 create table if not exists audit_logs (

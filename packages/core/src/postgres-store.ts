@@ -271,12 +271,12 @@ export class PostgresKnowledgeStore implements KnowledgeStore {
       `
         select space_id, path, repo_path, title, tags, sha, updated_at, content,
           ts_rank(
-            to_tsvector('simple', coalesce(title, '') || ' ' || array_to_string(tags, ' ') || ' ' || coalesce(content, '')),
+            to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, '')),
             plainto_tsquery('simple', $2)
           ) as rank
         from documents
         where space_id = any($1)
-          and to_tsvector('simple', coalesce(title, '') || ' ' || array_to_string(tags, ' ') || ' ' || coalesce(content, ''))
+          and to_tsvector('simple', coalesce(title, '') || ' ' || coalesce(content, ''))
             @@ plainto_tsquery('simple', $2)
         order by rank desc, updated_at desc
         limit 50
