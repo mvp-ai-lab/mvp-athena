@@ -143,11 +143,9 @@ curl http://127.0.0.1:3000/healthz
 
 Production deployments should bind the API to localhost and put nginx, Caddy, or another reverse proxy in front of it:
 
-```yaml
-services:
-  api:
-    ports:
-      - "127.0.0.1:13000:3000"
+```sh
+ATHENA_API_BIND=127.0.0.1:
+ATHENA_API_PORT=13000
 ```
 
 Example nginx proxy:
