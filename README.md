@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/<owner>/<repo>/actions/workflows/release-clients.yml"><img alt="client release" src="https://img.shields.io/github/actions/workflow/status/<owner>/<repo>/release-clients.yml?branch=main&label=client%20release"></a>
+  <a href="https://github.com/mvp-ai-lab/mvp-athena/actions/workflows/release-clients.yml"><img alt="client release" src="https://img.shields.io/github/actions/workflow/status/mvp-ai-lab/mvp-athena/release-clients.yml?branch=main&label=client%20release"></a>
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Node.js%2020-339933">
   <img alt="language" src="https://img.shields.io/badge/language-TypeScript-3178C6">
   <img alt="database" src="https://img.shields.io/badge/database-PostgreSQL%20%2B%20pgvector-4169E1">
@@ -195,15 +195,14 @@ Set `ATHENA_BOT_TOKEN`, `DISCORD_TOKEN`, and `DISCORD_APPLICATION_ID` before ena
 Install prebuilt CLI and MCP binaries. This does not require Node, npm, or pnpm on the user machine:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh \
-  | ATHENA_REPO=<owner>/<repo> sh
+curl -fsSL https://raw.githubusercontent.com/mvp-ai-lab/mvp-athena/main/install.sh | sh
 ```
 
 Install a specific release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh \
-  | ATHENA_REPO=<owner>/<repo> ATHENA_VERSION=v0.1.0 sh
+curl -fsSL https://raw.githubusercontent.com/mvp-ai-lab/mvp-athena/main/install.sh \
+  | ATHENA_VERSION=v0.1.2 sh
 ```
 
 The installer writes:

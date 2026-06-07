@@ -5,17 +5,14 @@ usage() {
   cat <<'EOF'
 Install MVP Athena CLI and MCP server prebuilt binaries.
 
-Required:
-  ATHENA_REPO       GitHub repository in owner/name form, for example acme/mvp-athena.
-
 Optional:
+  ATHENA_REPO       GitHub repository in owner/name form. Defaults to mvp-ai-lab/mvp-athena.
   ATHENA_VERSION    Release tag. Defaults to latest.
   ATHENA_INSTALL_BIN_DIR  Install directory. Defaults to ~/.local/bin.
   ATHENA_RELEASE_BASE_URL Override release asset base URL.
 
 Example:
-  curl -fsSL https://raw.githubusercontent.com/acme/mvp-athena/main/install.sh \
-    | ATHENA_REPO=acme/mvp-athena sh
+  curl -fsSL https://raw.githubusercontent.com/mvp-ai-lab/mvp-athena/main/install.sh | sh
 EOF
 }
 
@@ -37,11 +34,9 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
   exit 0
 fi
 
-repo="${ATHENA_REPO:-}"
+repo="${ATHENA_REPO:-mvp-ai-lab/mvp-athena}"
 version="${ATHENA_VERSION:-latest}"
 bin_dir="${ATHENA_INSTALL_BIN_DIR:-"$HOME/.local/bin"}"
-
-[ -n "$repo" ] || die "ATHENA_REPO is required. Run with --help for an example."
 
 require_command awk
 require_command curl
