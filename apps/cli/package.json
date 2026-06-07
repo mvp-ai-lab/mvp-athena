@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {
-    "mvp-athena": "./dist/index.js",
     "athena": "./dist/index.js"
   },
   "scripts": {

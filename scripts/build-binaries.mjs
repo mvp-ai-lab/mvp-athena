@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { arch, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -15,20 +15,18 @@ const [targetPlatform, targetArch] = target.split("-");
 if (!targetPlatform || !targetArch) {
   throw new Error(`ATHENA_BINARY_TARGET must look like linux-x64 or darwin-arm64, got: ${target}`);
 }
-const outDir = join(releaseDir, `mvp-athena-${target}`);
+const outDir = join(releaseDir, `athena-${target}`);
 const exe = targetPlatform === "win32" ? ".exe" : "";
 const nodeBinary = process.env.ATHENA_NODE_BINARY ?? process.execPath;
 const fuse = "NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2";
 
 const entries = [
   {
-    name: "mvp-athena",
-    aliases: ["athena"],
+    name: "athena",
     entry: "apps/cli/src/index.ts"
   },
   {
-    name: "mvp-athena-mcp",
-    aliases: ["athena-mcp"],
+    name: "athena-mcp",
     entry: "apps/mcp-server/src/index.ts"
   }
 ];
@@ -94,10 +92,6 @@ for (const entry of entries) {
     run("chmod", ["755", binary]);
   }
 
-  for (const alias of entry.aliases) {
-    const aliasBinary = join(outDir, `${alias}${exe}`);
-    symlinkSync(`${entry.name}${exe}`, aliasBinary);
-  }
 }
 
 writeFileSync(
@@ -106,9 +100,7 @@ writeFileSync(
     "MVP Athena client binaries",
     "",
     "Commands:",
-    `  ./mvp-athena${exe}`,
     `  ./athena${exe}`,
-    `  ./mvp-athena-mcp${exe}`,
     `  ./athena-mcp${exe}`,
     "",
     "Set ATHENA_API_URL and ATHENA_TOKEN before use.",
@@ -116,11 +108,11 @@ writeFileSync(
   ].join("\n")
 );
 
-const archive = join(releaseDir, `mvp-athena-${target}.tar.gz`);
+const archive = join(releaseDir, `athena-${target}.tar.gz`);
 rmSync(archive, { force: true });
 if (existsSyncCommand("tar")) {
-  run("tar", ["-czf", archive, "-C", releaseDir, `mvp-athena-${target}`]);
-  writeFileSync(`${archive}.sha256`, `${sha256File(archive)}  ${`mvp-athena-${target}.tar.gz`}\n`);
+  run("tar", ["-czf", archive, "-C", releaseDir, `athena-${target}`]);
+  writeFileSync(`${archive}.sha256`, `${sha256File(archive)}  ${`athena-${target}.tar.gz`}\n`);
   console.log(`Wrote ${archive}`);
 } else {
   console.log(`Wrote ${outDir}`);

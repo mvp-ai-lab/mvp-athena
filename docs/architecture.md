@@ -32,7 +32,7 @@ updated_at: 2026-06-05T00:00:00.000Z
 
 - `apps/api` owns HTTP routes, auth boundaries, GitHub webhook intake, and service wiring.
 - `apps/mcp-server` exposes agent tools against the same API/service contract.
-- `apps/cli` provides the canonical `mvp-athena` command.
+- `apps/cli` provides the canonical `athena` command.
 - `apps/discord-bot` maps slash commands into the same knowledge operations.
 - `packages/core` contains permission checks, path normalization, Markdown parsing, audit models, and service orchestration.
 

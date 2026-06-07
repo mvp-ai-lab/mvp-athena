@@ -9,7 +9,7 @@ export interface ClientConfig {
 
 export function loadConfig(): ClientConfig {
   try {
-    const path = process.env.ATHENA_CONFIG_PATH ?? join(homedir(), ".config", "mvp-athena", "config.json");
+    const path = process.env.ATHENA_CONFIG_PATH ?? join(homedir(), ".config", "athena", "config.json");
     return JSON.parse(readFileSync(path, "utf8")) as ClientConfig;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {

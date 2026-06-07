@@ -14,18 +14,18 @@ Optional:
   ATHENA_RELEASE_BASE_URL Override release asset base URL.
 
 Example:
-  curl -fsSL https://raw.githubusercontent.com/acme/mvp-athena/main/scripts/install-binary.sh \
+  curl -fsSL https://raw.githubusercontent.com/acme/mvp-athena/main/install.sh \
     | ATHENA_REPO=acme/mvp-athena sh
 EOF
 }
 
 die() {
-  printf 'mvp-athena binary install: %s\n' "$*" >&2
+  printf 'athena install: %s\n' "$*" >&2
   exit 1
 }
 
 info() {
-  printf 'mvp-athena binary install: %s\n' "$*"
+  printf 'athena install: %s\n' "$*"
 }
 
 require_command() {
@@ -43,10 +43,13 @@ bin_dir="${ATHENA_INSTALL_BIN_DIR:-"$HOME/.local/bin"}"
 
 [ -n "$repo" ] || die "ATHENA_REPO is required. Run with --help for an example."
 
+require_command awk
 require_command curl
+require_command install
+require_command mktemp
 require_command tar
 require_command uname
-require_command install
+
 if command -v sha256sum >/dev/null 2>&1; then
   checksum_command="sha256sum"
 elif command -v shasum >/dev/null 2>&1; then
@@ -67,7 +70,8 @@ case "$(uname -m)" in
   *) die "unsupported CPU architecture: $(uname -m)" ;;
 esac
 
-asset="mvp-athena-${os}-${cpu}.tar.gz"
+target="${os}-${cpu}"
+asset="athena-${target}.tar.gz"
 
 if [ -n "${ATHENA_RELEASE_BASE_URL:-}" ]; then
   url="${ATHENA_RELEASE_BASE_URL%/}/${asset}"
@@ -77,9 +81,10 @@ else
   url="https://github.com/${repo}/releases/download/${version}/${asset}"
 fi
 
-tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/mvp-athena-bin.XXXXXX")
+tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/athena-bin.XXXXXX")
 trap 'rm -rf "$tmp_dir"' EXIT
 
+info "detected platform: $target"
 info "downloading $url"
 curl -fL "$url" -o "$tmp_dir/$asset"
 curl -fL "$url.sha256" -o "$tmp_dir/$asset.sha256"
@@ -93,13 +98,9 @@ info "extracting $asset"
 tar -xzf "$tmp_dir/$asset" -C "$tmp_dir"
 
 mkdir -p "$bin_dir"
-install -m 0755 "$tmp_dir/mvp-athena-${os}-${cpu}/mvp-athena" "$bin_dir/mvp-athena"
-install -m 0755 "$tmp_dir/mvp-athena-${os}-${cpu}/athena" "$bin_dir/athena"
-install -m 0755 "$tmp_dir/mvp-athena-${os}-${cpu}/mvp-athena-mcp" "$bin_dir/mvp-athena-mcp"
-install -m 0755 "$tmp_dir/mvp-athena-${os}-${cpu}/athena-mcp" "$bin_dir/athena-mcp"
+install -m 0755 "$tmp_dir/athena-${target}/athena" "$bin_dir/athena"
+install -m 0755 "$tmp_dir/athena-${target}/athena-mcp" "$bin_dir/athena-mcp"
 
-info "installed $bin_dir/mvp-athena"
 info "installed $bin_dir/athena"
-info "installed $bin_dir/mvp-athena-mcp"
 info "installed $bin_dir/athena-mcp"
-info "make sure $bin_dir is on PATH, then set ATHENA_API_URL and ATHENA_TOKEN"
+info "make sure $bin_dir is on PATH, then run: athena login --api-url <athena-api-url>"

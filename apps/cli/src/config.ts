@@ -14,7 +14,7 @@ export interface ClientConfig {
 }
 
 export function configPath(): string {
-  return process.env.ATHENA_CONFIG_PATH ?? join(homedir(), ".config", "mvp-athena", "config.json");
+  return process.env.ATHENA_CONFIG_PATH ?? join(homedir(), ".config", "athena", "config.json");
 }
 
 export async function loadConfig(): Promise<ClientConfig> {

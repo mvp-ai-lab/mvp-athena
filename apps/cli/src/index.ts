@@ -27,7 +27,7 @@ function encodePath(path: string): string {
 }
 
 program
-  .name("mvp-athena")
+  .name("athena")
   .description("Agent-first team knowledge CLI")
   .version("0.1.0");
 

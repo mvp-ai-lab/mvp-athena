@@ -5,7 +5,6 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "mvp-athena-mcp": "./dist/index.js",
     "athena-mcp": "./dist/index.js"
   },
   "scripts": {

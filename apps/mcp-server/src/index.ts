@@ -6,7 +6,7 @@ import { AthenaApiClient } from "./api-client.js";
 
 const client = new AthenaApiClient();
 const server = new McpServer({
-  name: "mvp-athena",
+  name: "athena",
   version: "0.1.0"
 });
 

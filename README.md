@@ -33,8 +33,8 @@ GitHub stores the canonical Markdown files and commit history. PostgreSQL stores
 
 ```text
 Users and agents
-  CLI: mvp-athena
-  MCP: mvp-athena-mcp
+  CLI: athena
+  MCP: athena-mcp
   Discord bot
         |
         | Bearer token
@@ -195,23 +195,21 @@ Set `ATHENA_BOT_TOKEN`, `DISCORD_TOKEN`, and `DISCORD_APPLICATION_ID` before ena
 Install prebuilt CLI and MCP binaries. This does not require Node, npm, or pnpm on the user machine:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/scripts/install-binary.sh \
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh \
   | ATHENA_REPO=<owner>/<repo> sh
 ```
 
 Install a specific release:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/scripts/install-binary.sh \
+curl -fsSL https://raw.githubusercontent.com/<owner>/<repo>/main/install.sh \
   | ATHENA_REPO=<owner>/<repo> ATHENA_VERSION=v0.1.0 sh
 ```
 
 The installer writes:
 
 ```text
-~/.local/bin/mvp-athena
 ~/.local/bin/athena
-~/.local/bin/mvp-athena-mcp
 ~/.local/bin/athena-mcp
 ```
 
@@ -222,19 +220,19 @@ Make sure `~/.local/bin` is on `PATH`.
 Log in with GitHub App device flow:
 
 ```sh
-mvp-athena login --api-url https://athena.example.com
+athena login --api-url https://athena.example.com
 ```
 
 The CLI prints a GitHub verification URL and code, then stores the issued Athena token in:
 
 ```text
-~/.config/mvp-athena/config.json
+~/.config/athena/config.json
 ```
 
 Check status:
 
 ```sh
-mvp-athena login --status
+athena login --status
 ```
 
 The server stores only a hash of the Athena token. Each request resolves to a concrete user, and commits use that user's GitHub identity:
@@ -247,44 +245,44 @@ author.email = user.githubEmail
 ## CLI Usage
 
 ```sh
-mvp-athena spaces
-mvp-athena search starter
-mvp-athena read team welcome.md
-mvp-athena read team welcome.md --raw
-mvp-athena create team runbook.md --title Runbook --body "Restart carefully."
-mvp-athena update team runbook.md --body "Updated procedure."
-mvp-athena upload team diagrams/flow.png ./flow.png
-mvp-athena move team runbook.md ops/runbook.md
-mvp-athena history team ops/runbook.md
-mvp-athena summary team
+athena spaces
+athena search starter
+athena read team welcome.md
+athena read team welcome.md --raw
+athena create team runbook.md --title Runbook --body "Restart carefully."
+athena update team runbook.md --body "Updated procedure."
+athena upload team diagrams/flow.png ./flow.png
+athena move team runbook.md ops/runbook.md
+athena history team ops/runbook.md
+athena summary team
 ```
 
 `read` defaults to the Markdown body. Use `--raw` to include frontmatter.
 
 ## Codex MCP
 
-The MCP server uses stdio transport. Codex should start it locally and point it at the deployed API. After `mvp-athena login`, the MCP server can read the same local config token.
+The MCP server uses stdio transport. Codex should start it locally and point it at the deployed API. After `athena login`, the MCP server can read the same local config token.
 
 Add it to Codex:
 
 ```sh
-codex mcp add mvp-athena -- mvp-athena-mcp
+codex mcp add athena -- athena-mcp
 ```
 
 Equivalent `config.toml`:
 
 ```toml
-[mcp_servers.mvp-athena]
-command = "mvp-athena-mcp"
+[mcp_servers.athena]
+command = "athena-mcp"
 ```
 
 Explicit environment configuration is also supported:
 
 ```sh
-codex mcp add mvp-athena \
+codex mcp add athena \
   --env ATHENA_API_URL=https://athena.example.com \
   --env ATHENA_TOKEN=<user-token> \
-  -- mvp-athena-mcp
+  -- athena-mcp
 ```
 
 ## API
@@ -320,7 +318,7 @@ Knowledge:
 ```text
 apps/
   api/          Fastify API
-  cli/          mvp-athena command
+  cli/          athena command
   mcp-server/   stdio MCP server for agents
   discord-bot/  optional Discord slash commands
 packages/
@@ -328,8 +326,8 @@ packages/
 docs/
   schema.sql    PostgreSQL schema
   seed.sql      local seed data
+install.sh      binary client installer
 scripts/
-  install-binary.sh
   build-binaries.mjs
 ```
 
